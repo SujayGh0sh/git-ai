@@ -757,7 +757,10 @@ impl WindsurfPreset {
                 }
                 "code_action" => {
                     if let Some(action) = inner {
-                        let path = action.get("path").cloned().unwrap_or(serde_json::Value::Null);
+                        let path = action
+                            .get("path")
+                            .cloned()
+                            .unwrap_or(serde_json::Value::Null);
                         let new_content = action
                             .get("new_content")
                             .cloned()
@@ -773,8 +776,8 @@ impl WindsurfPreset {
                         });
                     }
                 }
-                "view_file" | "run_command" | "find" | "grep_search"
-                | "list_directory" | "list_resources" => {
+                "view_file" | "run_command" | "find" | "grep_search" | "list_directory"
+                | "list_resources" => {
                     // Map all tool-like actions to ToolUse
                     let input = inner.cloned().unwrap_or(serde_json::json!({}));
                     transcript.add_message(Message::ToolUse {

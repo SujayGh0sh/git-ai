@@ -31,11 +31,16 @@ fn test_windsurf_preset_human_checkpoint() {
         hook_input: Some(hook_input.to_string()),
     };
 
-    let result = WindsurfPreset.run(flags).expect("Failed to run WindsurfPreset");
+    let result = WindsurfPreset
+        .run(flags)
+        .expect("Failed to run WindsurfPreset");
 
     assert_eq!(result.checkpoint_kind, CheckpointKind::Human);
     assert!(result.will_edit_filepaths.is_some());
-    assert_eq!(result.will_edit_filepaths.unwrap(), vec!["/home/user/project/main.rs"]);
+    assert_eq!(
+        result.will_edit_filepaths.unwrap(),
+        vec!["/home/user/project/main.rs"]
+    );
     assert!(result.edited_filepaths.is_none());
     assert!(result.transcript.is_none());
     assert!(result.agent_metadata.is_none());
@@ -57,11 +62,16 @@ fn test_windsurf_preset_ai_checkpoint_post_write_code() {
         hook_input: Some(hook_input.to_string()),
     };
 
-    let result = WindsurfPreset.run(flags).expect("Failed to run WindsurfPreset");
+    let result = WindsurfPreset
+        .run(flags)
+        .expect("Failed to run WindsurfPreset");
 
     assert_eq!(result.checkpoint_kind, CheckpointKind::AiAgent);
     assert!(result.edited_filepaths.is_some());
-    assert_eq!(result.edited_filepaths.unwrap(), vec!["/home/user/project/main.rs"]);
+    assert_eq!(
+        result.edited_filepaths.unwrap(),
+        vec!["/home/user/project/main.rs"]
+    );
     assert!(result.will_edit_filepaths.is_none());
     // Transcript parsing will fail since the derived path doesn't exist, but preset handles it gracefully
     assert!(result.transcript.is_some());
@@ -74,7 +84,11 @@ fn test_windsurf_preset_ai_checkpoint_post_write_code() {
 fn test_windsurf_preset_ai_checkpoint_post_cascade() {
     // Create a temp transcript file using real Windsurf nested format
     let mut temp_file = tempfile::NamedTempFile::new().unwrap();
-    writeln!(temp_file, r#"{{"status":"done","type":"user_input","user_input":{{"user_response":"Hello AI"}}}}"#).unwrap();
+    writeln!(
+        temp_file,
+        r#"{{"status":"done","type":"user_input","user_input":{{"user_response":"Hello AI"}}}}"#
+    )
+    .unwrap();
     writeln!(temp_file, r#"{{"planner_response":{{"response":"I will help you"}},"status":"done","type":"planner_response"}}"#).unwrap();
     let temp_path = temp_file.path().to_str().unwrap().to_string();
 
@@ -90,7 +104,9 @@ fn test_windsurf_preset_ai_checkpoint_post_cascade() {
         hook_input: Some(hook_input.to_string()),
     };
 
-    let result = WindsurfPreset.run(flags).expect("Failed to run WindsurfPreset");
+    let result = WindsurfPreset
+        .run(flags)
+        .expect("Failed to run WindsurfPreset");
 
     assert_eq!(result.checkpoint_kind, CheckpointKind::AiAgent);
     assert!(result.transcript.is_some());
@@ -99,7 +115,9 @@ fn test_windsurf_preset_ai_checkpoint_post_cascade() {
 
     // Verify message types
     assert!(matches!(&transcript.messages()[0], Message::User { text, .. } if text == "Hello AI"));
-    assert!(matches!(&transcript.messages()[1], Message::Assistant { text, .. } if text == "I will help you"));
+    assert!(
+        matches!(&transcript.messages()[1], Message::Assistant { text, .. } if text == "I will help you")
+    );
 }
 
 #[test]
@@ -114,7 +132,12 @@ fn test_windsurf_preset_missing_trajectory_id() {
 
     let result = WindsurfPreset.run(flags);
     assert!(result.is_err());
-    assert!(result.unwrap_err().to_string().contains("trajectory_id not found"));
+    assert!(
+        result
+            .unwrap_err()
+            .to_string()
+            .contains("trajectory_id not found")
+    );
 }
 
 #[test]
@@ -139,49 +162,63 @@ fn test_windsurf_transcript_parser_basic() {
     writeln!(temp_file, r#"{{"code_action":{{"path":"file:///src/main.rs","new_content":"fn hello() {{ println!(\"Hello!\"); }}"}},"status":"done","type":"code_action"}}"#).unwrap();
     let temp_path = temp_file.path().to_str().unwrap();
 
-    let (transcript, model) =
-        WindsurfPreset::transcript_and_model_from_windsurf_jsonl(temp_path)
-            .expect("Failed to parse Windsurf JSONL");
+    let (transcript, model) = WindsurfPreset::transcript_and_model_from_windsurf_jsonl(temp_path)
+        .expect("Failed to parse Windsurf JSONL");
 
     assert_eq!(transcript.messages().len(), 3);
     // Model is always None for Windsurf
     assert!(model.is_none());
 
     // Verify user message
-    assert!(matches!(&transcript.messages()[0], Message::User { text, .. } if text == "Add a hello world function"));
+    assert!(
+        matches!(&transcript.messages()[0], Message::User { text, .. } if text == "Add a hello world function")
+    );
     // Verify assistant message
-    assert!(matches!(&transcript.messages()[1], Message::Assistant { text, .. } if text.contains("hello world")));
+    assert!(
+        matches!(&transcript.messages()[1], Message::Assistant { text, .. } if text.contains("hello world"))
+    );
     // Verify tool use
-    assert!(matches!(&transcript.messages()[2], Message::ToolUse { name, .. } if name == "code_action"));
+    assert!(
+        matches!(&transcript.messages()[2], Message::ToolUse { name, .. } if name == "code_action")
+    );
 }
 
 #[test]
 fn test_windsurf_transcript_parser_skips_empty_content() {
     let mut temp_file = tempfile::NamedTempFile::new().unwrap();
-    writeln!(temp_file, r#"{{"status":"done","type":"user_input","user_input":{{"user_response":""}}}}"#).unwrap();
+    writeln!(
+        temp_file,
+        r#"{{"status":"done","type":"user_input","user_input":{{"user_response":""}}}}"#
+    )
+    .unwrap();
     writeln!(temp_file, r#"{{"planner_response":{{"response":"Real response"}},"status":"done","type":"planner_response"}}"#).unwrap();
     let temp_path = temp_file.path().to_str().unwrap();
 
-    let (transcript, _) =
-        WindsurfPreset::transcript_and_model_from_windsurf_jsonl(temp_path)
-            .expect("Failed to parse Windsurf JSONL");
+    let (transcript, _) = WindsurfPreset::transcript_and_model_from_windsurf_jsonl(temp_path)
+        .expect("Failed to parse Windsurf JSONL");
 
     // Empty user_response should be skipped
     assert_eq!(transcript.messages().len(), 1);
-    assert!(matches!(&transcript.messages()[0], Message::Assistant { .. }));
+    assert!(matches!(
+        &transcript.messages()[0],
+        Message::Assistant { .. }
+    ));
 }
 
 #[test]
 fn test_windsurf_transcript_parser_handles_malformed_lines() {
     let mut temp_file = tempfile::NamedTempFile::new().unwrap();
-    writeln!(temp_file, r#"{{"status":"done","type":"user_input","user_input":{{"user_response":"Hello"}}}}"#).unwrap();
+    writeln!(
+        temp_file,
+        r#"{{"status":"done","type":"user_input","user_input":{{"user_response":"Hello"}}}}"#
+    )
+    .unwrap();
     writeln!(temp_file, "not valid json at all").unwrap();
     writeln!(temp_file, r#"{{"planner_response":{{"response":"Hi there"}},"status":"done","type":"planner_response"}}"#).unwrap();
     let temp_path = temp_file.path().to_str().unwrap();
 
-    let (transcript, _) =
-        WindsurfPreset::transcript_and_model_from_windsurf_jsonl(temp_path)
-            .expect("Failed to parse Windsurf JSONL");
+    let (transcript, _) = WindsurfPreset::transcript_and_model_from_windsurf_jsonl(temp_path)
+        .expect("Failed to parse Windsurf JSONL");
 
     // Malformed line should be skipped
     assert_eq!(transcript.messages().len(), 2);
@@ -192,9 +229,8 @@ fn test_windsurf_transcript_parser_empty_file() {
     let temp_file = tempfile::NamedTempFile::new().unwrap();
     let temp_path = temp_file.path().to_str().unwrap();
 
-    let (transcript, model) =
-        WindsurfPreset::transcript_and_model_from_windsurf_jsonl(temp_path)
-            .expect("Failed to parse empty JSONL");
+    let (transcript, model) = WindsurfPreset::transcript_and_model_from_windsurf_jsonl(temp_path)
+        .expect("Failed to parse empty JSONL");
 
     assert!(transcript.messages().is_empty());
     assert!(model.is_none());
@@ -219,7 +255,10 @@ fn test_windsurf_transcript_parser_real_fixture() {
         .iter()
         .filter(|m| matches!(m, Message::User { .. }))
         .collect();
-    assert!(!user_msgs.is_empty(), "Should have at least one user message");
+    assert!(
+        !user_msgs.is_empty(),
+        "Should have at least one user message"
+    );
 
     // Check we got assistant messages
     let assistant_msgs: Vec<_> = transcript
@@ -227,7 +266,10 @@ fn test_windsurf_transcript_parser_real_fixture() {
         .iter()
         .filter(|m| matches!(m, Message::Assistant { .. }))
         .collect();
-    assert!(!assistant_msgs.is_empty(), "Should have at least one assistant message");
+    assert!(
+        !assistant_msgs.is_empty(),
+        "Should have at least one assistant message"
+    );
 
     // Check we got tool use messages (code_action, view_file, run_command, etc.)
     let tool_msgs: Vec<_> = transcript
@@ -235,11 +277,17 @@ fn test_windsurf_transcript_parser_real_fixture() {
         .iter()
         .filter(|m| matches!(m, Message::ToolUse { .. }))
         .collect();
-    assert!(!tool_msgs.is_empty(), "Should have at least one tool use message");
+    assert!(
+        !tool_msgs.is_empty(),
+        "Should have at least one tool use message"
+    );
 
     // Verify the first user message contains expected content
     if let Message::User { text, .. } = user_msgs[0] {
-        assert!(text.contains("song"), "First user message should mention 'song'");
+        assert!(
+            text.contains("song"),
+            "First user message should mention 'song'"
+        );
     }
 
     // Verify code_action tool uses exist
@@ -253,10 +301,16 @@ fn test_windsurf_transcript_parser_real_fixture() {
             }
         })
         .collect();
-    assert!(!code_actions.is_empty(), "Should have code_action tool uses");
+    assert!(
+        !code_actions.is_empty(),
+        "Should have code_action tool uses"
+    );
 
     // Print summary for inspection
-    println!("Parsed {} total messages from real Windsurf transcript:", transcript.messages().len());
+    println!(
+        "Parsed {} total messages from real Windsurf transcript:",
+        transcript.messages().len()
+    );
     println!("  {} user messages", user_msgs.len());
     println!("  {} assistant messages", assistant_msgs.len());
     println!("  {} tool use messages", tool_msgs.len());
@@ -282,9 +336,18 @@ fn test_windsurf_transcript_maps_all_tool_types() {
         .collect();
 
     // The real fixture includes these tool types
-    assert!(tool_names.contains(&"code_action".to_string()), "Should map code_action");
-    assert!(tool_names.contains(&"view_file".to_string()), "Should map view_file");
-    assert!(tool_names.contains(&"run_command".to_string()), "Should map run_command");
+    assert!(
+        tool_names.contains(&"code_action".to_string()),
+        "Should map code_action"
+    );
+    assert!(
+        tool_names.contains(&"view_file".to_string()),
+        "Should map view_file"
+    );
+    assert!(
+        tool_names.contains(&"run_command".to_string()),
+        "Should map run_command"
+    );
     assert!(tool_names.contains(&"find".to_string()), "Should map find");
 }
 
@@ -380,10 +443,7 @@ fn test_windsurf_e2e_human_checkpoint() {
 
     // Human edits should be attributed to human
     let mut file = repo.filename("index.ts");
-    file.assert_lines_and_blame(lines![
-        "const x = 1;".human(),
-        "const y = 2;".human(),
-    ]);
+    file.assert_lines_and_blame(lines!["const x = 1;".human(), "const y = 2;".human(),]);
 
     assert_eq!(
         commit.authorship_log.attestations.len(),

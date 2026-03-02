@@ -1309,7 +1309,9 @@ fn handle_show_transcript(args: &[String]) {
     if args.len() < 2 {
         eprintln!("Error: show-transcript requires agent name and path/id");
         eprintln!("Usage: git-ai show-transcript <agent> <path|id>");
-        eprintln!("  Agents: claude, codex, gemini, continue-cli, github-copilot, cursor, amp");
+        eprintln!(
+            "  Agents: claude, codex, gemini, continue-cli, github-copilot, cursor, amp, windsurf"
+        );
         eprintln!("  For cursor and amp, provide conversation/thread id instead of path");
         std::process::exit(1);
     }
@@ -1342,15 +1344,13 @@ fn handle_show_transcript(args: &[String]) {
                 std::process::exit(1);
             }
         },
-        "windsurf" => {
-            match WindsurfPreset::transcript_and_model_from_windsurf_jsonl(path_or_id) {
-                Ok((transcript, model)) => Ok((transcript, model)),
-                Err(e) => {
-                    eprintln!("Error loading Windsurf transcript: {}", e);
-                    std::process::exit(1);
-                }
+        "windsurf" => match WindsurfPreset::transcript_and_model_from_windsurf_jsonl(path_or_id) {
+            Ok((transcript, model)) => Ok((transcript, model)),
+            Err(e) => {
+                eprintln!("Error loading Windsurf transcript: {}", e);
+                std::process::exit(1);
             }
-        }
+        },
         "continue-cli" => match ContinueCliPreset::transcript_from_continue_json(path_or_id) {
             Ok(transcript) => Ok((transcript, None)),
             Err(e) => {
@@ -1398,7 +1398,7 @@ fn handle_show_transcript(args: &[String]) {
         _ => {
             eprintln!("Error: Unknown agent '{}'", agent_name);
             eprintln!(
-                "Supported agents: claude, codex, gemini, continue-cli, github-copilot, cursor, amp"
+                "Supported agents: claude, codex, gemini, continue-cli, github-copilot, cursor, amp, windsurf"
             );
             std::process::exit(1);
         }

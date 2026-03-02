@@ -20,7 +20,10 @@ pub struct WindsurfInstaller;
 
 impl WindsurfInstaller {
     fn hooks_path() -> PathBuf {
-        home_dir().join(".codeium").join("windsurf").join("hooks.json")
+        home_dir()
+            .join(".codeium")
+            .join("windsurf")
+            .join("hooks.json")
     }
 }
 
@@ -104,7 +107,11 @@ impl HookInstaller for WindsurfInstaller {
             serde_json::from_str(&existing_content)?
         };
 
-        let desired_cmd = format!("{} {}", params.binary_path.display(), WINDSURF_CHECKPOINT_CMD);
+        let desired_cmd = format!(
+            "{} {}",
+            params.binary_path.display(),
+            WINDSURF_CHECKPOINT_CMD
+        );
 
         let mut merged = existing.clone();
         let mut hooks_obj = merged.get("hooks").cloned().unwrap_or_else(|| json!({}));
