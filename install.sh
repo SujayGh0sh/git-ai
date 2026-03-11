@@ -357,6 +357,7 @@ fi
 # Add to PATH in all detected shell configurations
 SHELLS_CONFIGURED=""
 SHELLS_ALREADY_CONFIGURED=""
+CREATED_SHELL_PATHS=""
 
 while IFS='|' read -r shell_name config_file; do
     [ -z "$shell_name" ] && continue
@@ -365,12 +366,19 @@ while IFS='|' read -r shell_name config_file; do
     if [ "$shell_name" = "fish" ]; then
         path_cmd="fish_add_path -g \"$INSTALL_DIR\""
         # Create fish config directory if it doesn't exist (for fallback case)
-        mkdir -p "$(dirname "$config_file")"
+        config_dir="$(dirname "$config_file")"
+        if [ ! -d "$config_dir" ]; then
+            mkdir -p "$config_dir"
+            CREATED_SHELL_PATHS="${CREATED_SHELL_PATHS}${config_dir}\n"
+        fi
     else
         path_cmd="export PATH=\"$INSTALL_DIR:\$PATH\""
     fi
     
     # Create config file if it doesn't exist (for fallback case when no configs found)
+    if [ ! -f "$config_file" ]; then
+        CREATED_SHELL_PATHS="${CREATED_SHELL_PATHS}${config_file}\n"
+    fi
     touch "$config_file"
     
     # Append if not already present
@@ -424,6 +432,12 @@ fi
 # Fix file ownership when running as root for a different user (MDM deployments)
 if [ "$(id -u)" = "0" ] && [ -n "$INSTALL_USER" ]; then
     chown -R "$INSTALL_USER" "$HOME/.git-ai" 2>/dev/null || true
+    if [ -n "$CREATED_SHELL_PATHS" ]; then
+        printf '%b' "$CREATED_SHELL_PATHS" | while IFS= read -r created_path; do
+            [ -z "$created_path" ] && continue
+            chown "$INSTALL_USER" "$created_path" 2>/dev/null || true
+        done
+    fi
 fi
 
 echo ""
