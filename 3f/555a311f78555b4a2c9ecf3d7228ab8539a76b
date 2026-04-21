@@ -1,0 +1,31 @@
+scripts/git-ai-dashboard.py
+  af833b4b37be0660 3-810
+scripts/attribution-demo.py
+  h_e5747cbdf21ba8 1-17
+  af833b4b37be0660 18-50
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.2",
+  "base_commit_sha": "3f555a311f78555b4a2c9ecf3d7228ab8539a76b",
+  "prompts": {
+    "af833b4b37be0660": {
+      "agent_id": {
+        "tool": "github-copilot",
+        "id": "47dd3e6a-7097-4344-a78e-2545395374f9",
+        "model": "copilot/auto"
+      },
+      "human_author": "Sujay Ghosh",
+      "messages": [],
+      "total_additions": 1831,
+      "total_deletions": 41,
+      "accepted_lines": 1828,
+      "overriden_lines": 0
+    }
+  },
+  "humans": {
+    "h_e5747cbdf21ba8": {
+      "author": "Sujay Ghosh"
+    }
+  }
+}
