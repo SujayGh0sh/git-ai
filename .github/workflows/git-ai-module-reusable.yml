@@ -1,0 +1,79 @@
+name: git-ai Module (Reusable)
+
+on:
+  workflow_call:
+    inputs:
+      since_days:
+        description: How many days of data to collect
+        required: false
+        type: string
+        default: "30"
+      output_html:
+        description: Dashboard artifact file name
+        required: false
+        type: string
+        default: git-ai-dashboard.html
+      module_repository:
+        description: Repo that contains module scripts
+        required: false
+        type: string
+        default: SujayGh0sh/git-ai
+      module_ref:
+        description: Ref (branch/tag/SHA) for module repository
+        required: false
+        type: string
+        default: main
+      fetch_notes:
+        description: Fetch refs/notes from origin before collection
+        required: false
+        type: boolean
+        default: true
+    secrets:
+      database_url:
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  run-module:
+    name: Run git-ai attribution module
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout target repository (full history)
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Fetch git-ai notes from origin
+        if: ${{ inputs.fetch_notes }}
+        run: |
+          git fetch origin '+refs/notes/*:refs/notes/*' --force || true
+          echo "Notes refs present:"
+          git for-each-ref refs/notes/ || echo "  (none)"
+
+      - name: Checkout module repository
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ inputs.module_repository }}
+          ref: ${{ inputs.module_ref }}
+          path: .git-ai-module
+          fetch-depth: 1
+
+      - name: Run module runtime script
+        run: |
+          chmod +x .git-ai-module/scripts/run-git-ai-module.sh
+          .git-ai-module/scripts/run-git-ai-module.sh
+        env:
+          DATABASE_URL: ${{ secrets.database_url }}
+          SINCE_DAYS: ${{ inputs.since_days }}
+          OUTPUT_HTML: ${{ inputs.output_html }}
+
+      - name: Upload dashboard artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: git-ai-dashboard-${{ github.run_number }}
+          path: ${{ inputs.output_html }}
+          retention-days: 30
