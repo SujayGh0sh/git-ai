@@ -1,0 +1,29 @@
+scripts/attribution-demo.py
+  h_e5747cbdf21ba8 55-63
+  38c8b7a4b0f371ca 64-88
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.2",
+  "base_commit_sha": "483a8e52dd3701beeedccb893290a10ded34cb08",
+  "prompts": {
+    "38c8b7a4b0f371ca": {
+      "agent_id": {
+        "tool": "mock_ai",
+        "id": "ai-thread-1776839941502408000",
+        "model": "unknown"
+      },
+      "human_author": "Sujay Ghosh",
+      "messages": [],
+      "total_additions": 25,
+      "total_deletions": 0,
+      "accepted_lines": 25,
+      "overriden_lines": 0
+    }
+  },
+  "humans": {
+    "h_e5747cbdf21ba8": {
+      "author": "Sujay Ghosh"
+    }
+  }
+}
