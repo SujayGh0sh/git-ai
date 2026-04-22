@@ -95,6 +95,9 @@ jobs:
         env:
           PROMPTS_DB: prompts.db
 
+      - name: Export commit-level attribution stats → Postgres
+        run: python3 scripts/export-commit-stats-to-db.py
+
       - name: Generate dashboard from DB (all developers)
         run: python3 scripts/git-ai-dashboard.py --db --output dashboard.html
 

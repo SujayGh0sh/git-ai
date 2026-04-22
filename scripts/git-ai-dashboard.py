@@ -280,9 +280,12 @@ def collect_from_db(
     max_count: int | None,
 ) -> tuple[list[dict], list[dict], dict[str, dict], int]:
     """
-    Query the central git_ai_prompts table and return the same
-    (commits, authors, timeline, noted_count) tuple that the local
-    pipeline produces — so the HTML generator needs no changes.
+  Query the central DB and return the same
+  (commits, authors, timeline, noted_count) tuple that the local
+  pipeline produces.
+
+  Preferred source: git_ai_commit_stats (commit-level attribution)
+  Fallback source:  git_ai_prompts (prompt-session rows)
     """
     try:
         import psycopg2  # type: ignore
@@ -294,15 +297,112 @@ def collect_from_db(
     conn = psycopg2.connect(database_url)
     try:
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            # -----------------------------------------------------------------
+            # Preferred path: commit-level stats (accurate commit count + split)
+            # -----------------------------------------------------------------
+            cur.execute("SELECT to_regclass('public.git_ai_commit_stats') AS table_name")
+            table_row = cur.fetchone() or {}
+            has_commit_stats_table = bool(table_row.get("table_name"))
+
+            if has_commit_stats_table:
+                since_clause = ""
+                params: list[object] = []
+                if since and since != "all":
+                    epoch = _since_to_epoch(since)
+                    since_clause = "WHERE commit_timestamp >= %s"
+                    params.append(epoch)
+
+                limit_clause = ""
+                if max_count:
+                    limit_clause = f"LIMIT {int(max_count)}"
+
+                cur.execute(
+                    f"""
+                    SELECT
+                        commit_sha,
+                        commit_timestamp,
+                        commit_date,
+                        author_name,
+                        author_email,
+                        subject,
+                        insertions,
+                        deletions,
+                        ai_additions,
+                        human_additions,
+                        unknown_additions,
+                        mixed_additions,
+                        has_note,
+                        tools_json
+                    FROM git_ai_commit_stats
+                    {since_clause}
+                    ORDER BY commit_timestamp DESC
+                    {limit_clause}
+                    """,
+                    params,
+                )
+                commit_rows = cur.fetchall()
+
+                if commit_rows:
+                    commits: list[dict] = []
+                    for r in commit_rows:
+                        tools_raw = r.get("tools_json")
+                        parsed_tools: dict = {}
+                        if isinstance(tools_raw, str):
+                            try:
+                                parsed_tools = json.loads(tools_raw) if tools_raw else {}
+                            except json.JSONDecodeError:
+                                parsed_tools = {}
+                        elif isinstance(tools_raw, dict):
+                            parsed_tools = tools_raw
+
+                        tools: dict[str, int] = {}
+                        for key, val in parsed_tools.items():
+                            try:
+                                tools[str(key)] = int(val or 0)
+                            except (TypeError, ValueError):
+                                continue
+
+                        ts = int(r.get("commit_timestamp") or 0)
+                        date = r.get("commit_date")
+                        if not date:
+                            date = datetime.fromtimestamp(ts).strftime("%Y-%m-%d") if ts else ""
+
+                        commits.append({
+                            "sha": r.get("commit_sha") or "",
+                            "author": r.get("author_name") or "unknown",
+                            "email": r.get("author_email") or "unknown",
+                            "date": date,
+                            "subject": r.get("subject") or "",
+                            "files_changed": 0,
+                            "insertions": int(r.get("insertions") or 0),
+                            "deletions": int(r.get("deletions") or 0),
+                            "ai_additions": int(r.get("ai_additions") or 0),
+                            "human_additions": int(r.get("human_additions") or 0),
+                            "unknown_additions": int(r.get("unknown_additions") or 0),
+                            "mixed_additions": int(r.get("mixed_additions") or 0),
+                            "has_note": bool(r.get("has_note", True)),
+                            "tools": tools,
+                        })
+
+                    authors = aggregate_by_author(commits)
+                    timeline = build_timeline(commits)
+                    noted_count = len([c for c in commits if c["has_note"]])
+                    return commits, authors, timeline, noted_count
+
+            # -----------------------------------------------------------------
+            # Backward-compatible fallback: prompt session rows
+            # -----------------------------------------------------------------
             since_clause = ""
-            params: list = []
-            if since and not (hasattr(since, '__class__') and since == 'all'):
+            params: list[object] = []
+            if since and since != "all":
                 epoch = _since_to_epoch(since)
                 since_clause = "WHERE start_time >= %s"
                 params.append(epoch)
+
             limit_clause = ""
             if max_count:
                 limit_clause = f"LIMIT {int(max_count)}"
+
             cur.execute(f"""
                 SELECT
                     id, tool, model, human_author, commit_sha,
@@ -353,7 +453,7 @@ def collect_from_db(
     commits = []
     for c in commits_by_sha.values():
         c["tools"] = dict(c["tools"])
-        # Lines not attributed to AI are treated as unknown in the DB path
+        # In prompt-session fallback mode, non-AI lines are treated as unknown.
         c["unknown_additions"] = max(0, c["insertions"] - c["ai_additions"])
         commits.append(c)
 
