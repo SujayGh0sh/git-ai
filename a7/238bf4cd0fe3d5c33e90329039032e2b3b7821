@@ -1,0 +1,23 @@
+scripts/export-commit-stats-to-db.py
+  af833b4b37be0660 24,48-54,57-58,62,64-112,145-156,159-163,167-199,203,205-215,222,343
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.4",
+  "base_commit_sha": "a7238bf4cd0fe3d5c33e90329039032e2b3b7821",
+  "prompts": {
+    "af833b4b37be0660": {
+      "agent_id": {
+        "tool": "github-copilot",
+        "id": "47dd3e6a-7097-4344-a78e-2545395374f9",
+        "model": "copilot/claude-sonnet-4.6"
+      },
+      "human_author": "Sujay Ghosh",
+      "messages": [],
+      "total_additions": 129,
+      "total_deletions": 75,
+      "accepted_lines": 1705,
+      "overriden_lines": 0
+    }
+  }
+}
