@@ -31,6 +31,10 @@ on:
         description: "Collect prompts since N days ago (integer, e.g. 30)"
         required: false
         default: "30"
+      base_commit:
+        description: "Only include commits after this SHA (fork/project start point). Overrides since_days for commit stats."
+        required: false
+        default: "13e6842062d2823cdad972d545a2ffc6657af8dd"
 
 # Cancel in-progress runs on the same branch to avoid DB write conflicts.
 concurrency:
@@ -52,6 +56,10 @@ jobs:
       DATABASE_URL: ${{ secrets.DATABASE_URL }}
       # since_days must be a plain integer (number of days) for git-ai prompts --since
       SINCE_DAYS: ${{ github.event.inputs.since_days || '30' }}
+      # BASE_COMMIT: only export commits after this SHA (your fork/project start point).
+      # This prevents upstream contributors' history from appearing in the dashboard.
+      # Set to the commit just before your first commit to this repo.
+      BASE_COMMIT: ${{ github.event.inputs.base_commit || '13e6842062d2823cdad972d545a2ffc6657af8dd' }}
 
     steps:
       - name: Checkout repository (full history)

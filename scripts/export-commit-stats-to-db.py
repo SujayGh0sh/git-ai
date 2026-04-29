@@ -62,15 +62,29 @@ def noted_commit_shas() -> set[str]:
 _LOG_SEP = "\x1f"
 
 
-def list_all_commits(since_days: int | None) -> list[dict[str, object]]:
+def list_all_commits(
+    since_days: int | None,
+    base_commit: str | None = None,
+) -> list[dict[str, object]]:
     """
-    Return metadata for ALL commits reachable from HEAD (respecting since_days).
+    Return metadata for commits reachable from HEAD.
+
+    Scoping (in priority order):
+      1. base_commit (BASE_COMMIT env var) -- git log BASE_COMMIT..HEAD
+         Use this to limit to your fork/project start point so upstream
+         history from other contributors is excluded.
+      2. since_days (SINCE_DAYS env var)  -- git log --since=N days ago
+      3. Neither set                       -- all history (may be very large)
+
     Each entry contains: commit_sha, author_name, author_email,
     commit_timestamp, commit_date, subject, insertions, deletions.
     """
     fmt = _LOG_SEP.join(["%H", "%an", "%ae", "%at", "%s"])
     cmd = ["git", "log", f"--format=COMMIT:{fmt}", "--shortstat"]
-    if since_days is not None and since_days > 0:
+    if base_commit:
+        # Only commits after the given SHA (exclusive)
+        cmd += [f"{base_commit}..HEAD"]
+    elif since_days is not None and since_days > 0:
         cmd += [f"--since={since_days} days ago"]
 
     try:
@@ -141,7 +155,7 @@ def flatten_tools(tool_model_breakdown: object) -> dict[str, int]:
     return totals
 
 
-def collect_rows(since_days: int | None) -> list[tuple]:
+def collect_rows(since_days: int | None, base_commit: str | None = None) -> list[tuple]:
     """
     Build upsert rows for ALL commits in scope, not just noted ones.
 
@@ -151,7 +165,7 @@ def collect_rows(since_days: int | None) -> list[tuple]:
       has_note=False; all attribution fields are 0 so the dashboard counts them
       as entirely Unattributed, keeping all authors visible.
     """
-    all_commits = list_all_commits(since_days)
+    all_commits = list_all_commits(since_days, base_commit=base_commit)
     if not all_commits:
         print("  No commits found in the given time window.", file=sys.stderr)
         return []
@@ -319,11 +333,17 @@ def parse_since_days() -> int | None:
     try:
         days = int(raw)
     except ValueError:
-        print(f"WARN: invalid SINCE_DAYS={raw!r}; exporting all noted commits.", file=sys.stderr)
+        print(f"WARN: invalid SINCE_DAYS={raw!r}; ignoring.", file=sys.stderr)
         return None
     if days <= 0:
         return None
     return days
+
+
+def parse_base_commit() -> str | None:
+    """Return the BASE_COMMIT SHA from env, or None if not set."""
+    val = os.environ.get("BASE_COMMIT", "").strip()
+    return val if val else None
 
 
 def main() -> None:
@@ -333,13 +353,17 @@ def main() -> None:
     print("export-commit-stats-to-db", file=sys.stderr)
     print(f"  Repo: {repo_root}", file=sys.stderr)
 
+    base_commit = parse_base_commit()
     since_days = parse_since_days()
-    if since_days is None:
-        print("  Scope: all noted commits", file=sys.stderr)
-    else:
-        print(f"  Scope: commits in last {since_days} day(s)", file=sys.stderr)
 
-    rows = collect_rows(since_days)
+    if base_commit:
+        print(f"  Scope: commits after {base_commit[:12]} (BASE_COMMIT)", file=sys.stderr)
+    elif since_days is not None:
+        print(f"  Scope: commits in last {since_days} day(s)", file=sys.stderr)
+    else:
+        print("  Scope: all commits (no BASE_COMMIT or SINCE_DAYS set)", file=sys.stderr)
+
+    rows = collect_rows(since_days, base_commit=base_commit)
     print(f"  Collected {len(rows)} commit stat row(s) (noted + un-noted)", file=sys.stderr)
     if not rows:
         print("  Nothing to export.", file=sys.stderr)
