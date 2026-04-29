@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shlex
 import subprocess
 import sys
@@ -44,42 +45,71 @@ def run_cmd(args: list[str]) -> str:
     return proc.stdout
 
 
-def list_noted_commits() -> list[str]:
-    """Return commit SHAs that have refs/notes/ai notes attached."""
-    out = run_cmd(["git", "notes", "--ref=ai", "list"]).strip()
-    if not out:
-        return []
-
-    shas: list[str] = []
-    seen: set[str] = set()
+def noted_commit_shas() -> set[str]:
+    """Return the set of commit SHAs that have refs/notes/ai notes attached."""
+    try:
+        out = run_cmd(["git", "notes", "--ref=ai", "list"]).strip()
+    except RuntimeError:
+        return set()
+    shas: set[str] = set()
     for line in out.splitlines():
         parts = line.strip().split()
-        if len(parts) < 2:
-            continue
-        commit_sha = parts[1]
-        if commit_sha not in seen:
-            seen.add(commit_sha)
-            shas.append(commit_sha)
+        if len(parts) >= 2:
+            shas.add(parts[1])
     return shas
 
 
-def get_commit_meta(commit_sha: str) -> dict[str, object]:
-    fmt = "%H%x1f%an%x1f%ae%x1f%at%x1f%s"
-    out = run_cmd(["git", "show", "-s", f"--format={fmt}", commit_sha]).strip()
-    parts = out.split("\x1f")
-    if len(parts) < 5:
-        raise RuntimeError(f"Unexpected git show output for commit {commit_sha}: {out!r}")
+_LOG_SEP = "\x1f"
 
-    ts = int(parts[3])
-    date = time.strftime("%Y-%m-%d", time.localtime(ts))
-    return {
-        "commit_sha": parts[0],
-        "author_name": parts[1],
-        "author_email": parts[2],
-        "commit_timestamp": ts,
-        "commit_date": date,
-        "subject": parts[4],
-    }
+
+def list_all_commits(since_days: int | None) -> list[dict[str, object]]:
+    """
+    Return metadata for ALL commits reachable from HEAD (respecting since_days).
+    Each entry contains: commit_sha, author_name, author_email,
+    commit_timestamp, commit_date, subject, insertions, deletions.
+    """
+    fmt = _LOG_SEP.join(["%H", "%an", "%ae", "%at", "%s"])
+    cmd = ["git", "log", f"--format=COMMIT:{fmt}", "--shortstat"]
+    if since_days is not None and since_days > 0:
+        cmd += [f"--since={since_days} days ago"]
+
+    try:
+        out = run_cmd(cmd).strip()
+    except RuntimeError:
+        return []
+
+    commits: list[dict[str, object]] = []
+    current: dict[str, object] | None = None
+    for line in out.splitlines():
+        if line.startswith("COMMIT:"):
+            if current is not None:
+                commits.append(current)
+            parts = line[7:].split(_LOG_SEP)
+            if len(parts) < 5:
+                current = None
+                continue
+            ts = int(parts[3])
+            current = {
+                "commit_sha": parts[0],
+                "author_name": parts[1],
+                "author_email": parts[2],
+                "commit_timestamp": ts,
+                "commit_date": time.strftime("%Y-%m-%d", time.localtime(ts)),
+                "subject": parts[4],
+                "insertions": 0,
+                "deletions": 0,
+            }
+        elif current is not None and " changed" in line:
+            m = re.search(r"(\d+) insertion", line)
+            if m:
+                current["insertions"] = int(m.group(1))
+            m = re.search(r"(\d+) deletion", line)
+            if m:
+                current["deletions"] = int(m.group(1))
+
+    if current is not None:
+        commits.append(current)
+    return commits
 
 
 def get_stats(commit_sha: str) -> dict[str, object]:
@@ -112,60 +142,84 @@ def flatten_tools(tool_model_breakdown: object) -> dict[str, int]:
 
 
 def collect_rows(since_days: int | None) -> list[tuple]:
-    commits = list_noted_commits()
-    if not commits:
+    """
+    Build upsert rows for ALL commits in scope, not just noted ones.
+
+    - Commits with a refs/notes/ai note  → enriched with full git-ai attribution stats.
+    - Commits without a note (e.g. other developers, GitHub web edits) → still
+      inserted with real commit metadata (author, insertions, deletions) and
+      has_note=False; all attribution fields are 0 so the dashboard counts them
+      as entirely Unattributed, keeping all authors visible.
+    """
+    all_commits = list_all_commits(since_days)
+    if not all_commits:
+        print("  No commits found in the given time window.", file=sys.stderr)
         return []
 
-    min_epoch = None
-    if since_days is not None:
-        min_epoch = int(time.time()) - since_days * 86400
+    noted = noted_commit_shas()
+    print(
+        f"  Found {len(all_commits)} commit(s) total, {len(noted)} with git-ai notes.",
+        file=sys.stderr,
+    )
 
     rows: list[tuple] = []
     skipped = 0
-    for sha in commits:
-        try:
-            meta = get_commit_meta(sha)
-        except Exception as exc:
-            print(f"  WARN: skipping commit {sha}: {exc}", file=sys.stderr)
-            skipped += 1
-            continue
+    updated_at = int(time.time())
 
-        commit_ts = int(meta["commit_timestamp"])
-        if min_epoch is not None and commit_ts < min_epoch:
-            continue
+    for meta in all_commits:
+        sha = str(meta["commit_sha"])
+        commit_ts = int(meta["commit_timestamp"])  # type: ignore[arg-type]
 
-        try:
-            stats = get_stats(sha)
-        except Exception as exc:
-            print(f"  WARN: skipping stats for {sha}: {exc}", file=sys.stderr)
-            skipped += 1
-            continue
+        has_note = sha in noted
 
-        tools = flatten_tools(stats.get("tool_model_breakdown"))
-        updated_at = int(time.time())
+        if has_note:
+            try:
+                stats = get_stats(sha)
+            except Exception as exc:
+                print(f"  WARN: could not get stats for {sha}: {exc}", file=sys.stderr)
+                stats = {}
+                skipped += 1
+
+            tools = flatten_tools(stats.get("tool_model_breakdown"))
+            ai_add = int(stats.get("ai_additions", 0) or 0)
+            human_add = int(stats.get("human_additions", 0) or 0)
+            unknown_add = int(stats.get("unknown_additions", 0) or 0)
+            mixed_add = int(stats.get("mixed_additions", 0) or 0)
+            insertions = int(stats.get("git_diff_added_lines", 0) or 0) or int(meta["insertions"])  # type: ignore[arg-type]
+            deletions = int(stats.get("git_diff_deleted_lines", 0) or 0) or int(meta["deletions"])  # type: ignore[arg-type]
+        else:
+            # No git-ai note: treat all lines as unattributed so the commit still
+            # appears in the dashboard under the correct author.
+            tools = {}
+            ai_add = 0
+            human_add = 0
+            unknown_add = int(meta["insertions"])  # type: ignore[arg-type]
+            mixed_add = 0
+            insertions = int(meta["insertions"])  # type: ignore[arg-type]
+            deletions = int(meta["deletions"])  # type: ignore[arg-type]
 
         rows.append(
             (
-                meta["commit_sha"],
+                sha,
                 commit_ts,
-                meta["commit_date"],
-                meta["author_name"],
-                meta["author_email"],
-                meta["subject"],
-                int(stats.get("git_diff_added_lines", 0) or 0),
-                int(stats.get("git_diff_deleted_lines", 0) or 0),
-                int(stats.get("ai_additions", 0) or 0),
-                int(stats.get("human_additions", 0) or 0),
-                int(stats.get("unknown_additions", 0) or 0),
-                int(stats.get("mixed_additions", 0) or 0),
-                True,
+                str(meta["commit_date"]),
+                str(meta["author_name"]),
+                str(meta["author_email"]),
+                str(meta["subject"]),
+                insertions,
+                deletions,
+                ai_add,
+                human_add,
+                unknown_add,
+                mixed_add,
+                has_note,
                 json.dumps(tools, separators=(",", ":")),
                 updated_at,
             )
         )
 
     if skipped:
-        print(f"  WARN: skipped {skipped} commit(s) due to read/stat errors", file=sys.stderr)
+        print(f"  WARN: {skipped} commit(s) had note-read errors; stored with partial/zero stats.", file=sys.stderr)
     return rows
 
 
@@ -286,7 +340,7 @@ def main() -> None:
         print(f"  Scope: commits in last {since_days} day(s)", file=sys.stderr)
 
     rows = collect_rows(since_days)
-    print(f"  Collected {len(rows)} noted commit stat row(s)", file=sys.stderr)
+    print(f"  Collected {len(rows)} commit stat row(s) (noted + un-noted)", file=sys.stderr)
     if not rows:
         print("  Nothing to export.", file=sys.stderr)
         return
